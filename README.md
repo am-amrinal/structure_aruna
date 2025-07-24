@@ -1,25 +1,17 @@
-# UAV Spar Structural Analysis Dashboard
+# UAV Spar Structure Analyzer (Streamlit)
 
-This Streamlit app allows you to perform structural analysis of a UAV wing spar configuration using hollow carbon tubes and composite skins. It calculates bending stress, shear stress, maximum deflection, and weight estimation for each spar component. It also generates interactive line charts and provides export options.
+A Streamlit-based dashboard to analyze bending stress, shear stress, and deflection in hollow carbon tube spars for UAV wings.
 
----
+## Features
 
-## 📊 Features
-- Input design parameters for multiple spars
-- Structural analysis:
-  - Bending Stress (σ)
-  - Shear Stress (τ)
-  - Maximum Bending Deflection (δₘₐₓ)
-  - Total Weight Estimation (spar, ribs, skin)
-- Visual line graphs comparing stress/deflection to safety limits
-- Export results:
-  - CSV Download
-  - PDF Report (basic)
-- Responsive dark-mode layout
+- Bending, shear stress, and deflection analysis
+- Safety status per spar
+- Interactive line charts
+- Weight estimation
+- PDF report export
 
----
+## Run App
 
-## 🚀 How to Run
 ```bash
 pip install -r requirements.txt
-streamlit run app.py
+streamlit run uav_structure_app.py
