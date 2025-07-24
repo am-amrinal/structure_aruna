@@ -3,7 +3,6 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from io import BytesIO
-from fpdf import FPDF
 
 # Title
 st.set_page_config(page_title="UAV Spar Structure Analysis", layout="wide", page_icon="🚁")
