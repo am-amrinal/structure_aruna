@@ -1,122 +1,82 @@
 import streamlit as st
-import pandas as pd
 import numpy as np
-from fpdf import FPDF
-import plotly.graph_objs as go
+import pandas as pd
+import matplotlib.pyplot as plt
 
-# Constants
-g = 9.81  # m/s^2
+st.set_page_config(layout="wide", page_title="UAV Spar Structural Dashboard", page_icon="✈️")
 
-def tube_inertia(OD, ID):
-    return (np.pi / 64) * (OD**4 - ID**4)
+st.title("✈️ UAV Structure Analysis Dashboard")
+st.markdown("Analyze **spar**, **ribs**, and **composite skin** contributions for UAV wings.")
 
-def tube_area(OD, ID):
-    return (np.pi / 4) * (OD**2 - ID**2)
+with st.sidebar:
+    st.header("Geometry & Load")
+    span = st.number_input("Half-Span Length (m)", value=1.3)
+    total_force = st.number_input("Total Lift Force (N)", value=120.0)
+    chord = st.number_input("Chord Length (m)", value=0.3)
 
-def calc_structure(params):
-    L = params["half_span"]
-    W = params["MTOW"]
-    q = W * g / (2 * L)  # Uniform distributed load per half wing
+    st.header("Spar 1 (Front)")
+    od1 = st.number_input("Front Spar OD (mm)", value=20.0)
+    id1 = st.number_input("Front Spar ID (mm)", value=18.0)
 
-    data = []
-    total_weight = 0
+    st.header("Spar 2 (Rear)")
+    od2 = st.number_input("Rear Spar OD (mm)", value=10.0)
+    id2 = st.number_input("Rear Spar ID (mm)", value=8.0)
 
-    for i, spar in enumerate(params["spars"], 1):
-        OD = spar["OD"] / 1000
-        ID = spar["ID"] / 1000
-        length = spar["length"]
-        density = spar["density"]
+    st.header("Material")
+    youngs_modulus = st.number_input("Young's Modulus (GPa)", value=140.0)
+    density = st.number_input("Material Density (g/cm³)", value=1.6)
 
-        I = tube_inertia(OD, ID)
-        A = tube_area(OD, ID)
-        weight = A * length * density * 1000  # in grams
+    st.header("Ribs")
+    rib_spacing = st.number_input("Rib Spacing (m)", value=0.15)
+    skin_thickness = st.number_input("Skin Thickness (mm)", value=0.5)
+    skin_E = st.number_input("Skin Modulus (GPa)", value=70.0)
 
-        E = spar["E"]
+# === Calculations ===
+def mm2_to_m4(mm4): return mm4 * 1e-12
 
-        sigma_max = (q * L**2) / (8 * I)
-        tau_max = (q * L) / (2 * A)
-        delta_max = (5 * q * L**4) / (384 * E * I)
+def tube_inertia(od, id_):
+    return (np.pi / 64) * (od**4 - id_**4)
 
-        status_deflection = "Safe" if delta_max < 0.05 else "Too Much"
-        status_stress = "Safe" if sigma_max < spar["max_stress"] else "Too High"
-        status_shear = "Safe" if tau_max < spar["max_shear"] else "Too High"
+I1 = tube_inertia(od1, id1)
+I2 = tube_inertia(od2, id2)
+I_total = I1 + I2
 
-        data.append({
-            "Spar": f"Spar {i}",
-            "Bending Stress (MPa)": sigma_max / 1e6,
-            "Shear Stress (MPa)": tau_max / 1e6,
-            "Max Deflection (mm)": delta_max * 1000,
-            "Weight (g)": weight,
-            "Deflection Status": status_deflection,
-            "Stress Status": status_stress,
-            "Shear Status": status_shear
-        })
+L = span
+F = total_force / 2  # Half-wing load
+E = youngs_modulus * 1e9
+delta_max = (F * L**3) / (3 * E * mm2_to_m4(I_total))
+stress_max = (F * L * (od1 / 2)) / mm2_to_m4(I_total)
+shear_stress = F / (np.pi * ((od1 / 1000)**2 - (id1 / 1000)**2))
 
-        total_weight += weight
+col1, col2 = st.columns(2)
+with col1:
+    st.subheader("🧮 Structural Results")
+    st.metric("Max Bending Stress (Pa)", f"{stress_max:,.0f}")
+    st.metric("Tip Deflection (m)", f"{delta_max:.4f}")
+    st.metric("Shear Stress (Pa)", f"{shear_stress:,.0f}")
 
-    df = pd.DataFrame(data)
-    df["Total Wing Weight (g)"] = total_weight + params["skin_weight"] + params["rib_weight"]
-    return df
+with col2:
+    st.subheader("📏 Combined Spar Inertia")
+    st.write(f"I Spar 1 = {I1:.2e} mm⁴")
+    st.write(f"I Spar 2 = {I2:.2e} mm⁴")
+    st.write(f"I Total  = {I_total:.2e} mm⁴")
 
-def export_pdf(df):
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_font("Arial", size=12)
-    pdf.cell(200, 10, txt="UAV Spar Structural Analysis Report", ln=1, align="C")
+# === Visualization ===
+x = np.linspace(0, L, 200)
+M = F * (L - x)
+delta = (F * x**2) * (3*L - x) / (6 * E * mm2_to_m4(I_total))
 
-    pdf.set_font("Arial", size=10)
-    col_width = pdf.w / 6
-    pdf.ln(10)
+fig, ax = plt.subplots(1, 2, figsize=(10, 3))
+ax[0].plot(x, M)
+ax[0].set_title("Bending Moment Diagram")
+ax[0].set_xlabel("Wing Span (m)")
+ax[0].set_ylabel("Moment (Nm)")
+ax[0].grid(True)
 
-    for col in df.columns:
-        pdf.cell(col_width, 10, col, border=1)
-    pdf.ln()
+ax[1].plot(x, delta*1000)
+ax[1].set_title("Deflection Curve")
+ax[1].set_xlabel("Wing Span (m)")
+ax[1].set_ylabel("Deflection (mm)")
+ax[1].grid(True)
 
-    for index, row in df.iterrows():
-        for col in df.columns:
-            pdf.cell(col_width, 10, str(round(row[col], 2)) if isinstance(row[col], float) else str(row[col]), border=1)
-        pdf.ln()
-
-    path = "uav_structure_report.pdf"
-    pdf.output(path)
-    return path
-
-def main():
-    st.title("UAV Spar Structure Analysis")
-
-    params = {
-        "MTOW": 12,  # kg
-        "half_span": 1.3,  # m
-        "skin_weight": 420,  # g
-        "rib_weight": 200,   # g
-        "spars": [
-            {"OD": 20, "ID": 18, "length": 1.2, "density": 1.6, "E": 70e9, "max_stress": 600e6, "max_shear": 60e6},
-            {"OD": 10, "ID": 8,  "length": 1.2, "density": 1.6, "E": 70e9, "max_stress": 600e6, "max_shear": 60e6},
-            {"OD": 18, "ID": 16, "length": 1.2, "density": 1.6, "E": 70e9, "max_stress": 600e6, "max_shear": 60e6},
-            {"OD": 8,  "ID": 6,  "length": 1.2, "density": 1.6, "E": 70e9, "max_stress": 600e6, "max_shear": 60e6},
-        ]
-    }
-
-    df = calc_structure(params)
-    st.dataframe(df)
-
-    st.subheader("Line Charts")
-
-    def plot_metric(y, title):
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(x=df["Spar"], y=df[y], mode='lines+markers', name=y))
-        fig.update_layout(title=title, xaxis_title="Spar", yaxis_title=y)
-        st.plotly_chart(fig)
-
-    plot_metric("Max Deflection (mm)", "Deflection vs Spar")
-    plot_metric("Bending Stress (MPa)", "Bending Stress vs Spar")
-    plot_metric("Shear Stress (MPa)", "Shear Stress vs Spar")
-    plot_metric("Weight (g)", "Weight vs Spar")
-
-    if st.button("Export as PDF"):
-        path = export_pdf(df)
-        with open(path, "rb") as file:
-            st.download_button("Download PDF", file, file_name="uav_structure_report.pdf")
-
-if __name__ == "__main__":
-    main()
+st.pyplot(fig)
