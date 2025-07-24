@@ -1,6 +1,6 @@
-streamlit>=1.30
-numpy>=1.25
-pandas>=2.0
-matplotlib>=3.8
-plotly>=5.18
-scipy>=1.11
+streamlit>=1.35.0
+matplotlib>=3.8.0
+numpy>=1.26.0
+pandas>=2.2.0
+plotly>=5.20.0
+kaleido>=0.2.1  # Untuk ekspor ke PDF dari Plotly
