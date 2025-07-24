@@ -1,104 +1,145 @@
 import streamlit as st
 import numpy as np
-import pandas as pd
 import matplotlib.pyplot as plt
+import base64
+from io import BytesIO
 
-st.set_page_config(layout="wide", page_title="UAV Spar Structural Dashboard", page_icon="✈️")
+# Judul Aplikasi
+st.title("🛩️ UAV Structure Analysis Dashboard")
+st.markdown("""
+Analyze spar, ribs, and composite skin contributions for UAV wings.
+""")
 
-st.title("✈️ UAV Structure Analysis Dashboard")
-st.markdown("Analyze **spar**, **ribs**, and **composite skin** contributions for UAV wings.")
+# Sidebar Inputs
+st.sidebar.header("Geometry & Load")
+half_span = st.sidebar.number_input("Half Span Length (m)", value=1.3)
+total_lift = st.sidebar.number_input("Total Lift Force (N)", value=1200)
+chord_length = st.sidebar.number_input("Chord Length (m)", value=0.3)
 
-with st.sidebar:
-    st.header("Geometry & Load")
-    span = st.number_input("Half-Span Length (m)", value=1.3)
-    total_force = st.number_input("Total Lift Force (N)", value=120.0)
-    chord = st.number_input("Chord Length (m)", value=0.3)
+st.sidebar.header("Spar 1 (Front)")
+spar1_od = st.sidebar.number_input("Front Spar OD (mm)", value=20.0)
+spar1_id = st.sidebar.number_input("Front Spar ID (mm)", value=18.0)
 
-    st.header("Spar 1 (Front)")
-    od1 = st.number_input("Front Spar OD (mm)", value=20.0)
-    id1 = st.number_input("Front Spar ID (mm)", value=18.0)
+st.sidebar.header("Spar 2 (Rear)")
+spar2_od = st.sidebar.number_input("Rear Spar OD (mm)", value=10.0)
+spar2_id = st.sidebar.number_input("Rear Spar ID (mm)", value=8.0)
 
-    st.header("Spar 2 (Rear)")
-    od2 = st.number_input("Rear Spar OD (mm)", value=10.0)
-    id2 = st.number_input("Rear Spar ID (mm)", value=8.0)
+st.sidebar.header("Material")
+E = st.sidebar.number_input("Young's Modulus (GPa)", value=140.0) * 1e9
+material_density = st.sidebar.number_input("Material Density (kg/m³)", value=1.6)
 
-    st.header("Material")
-    youngs_modulus = st.number_input("Young's Modulus (GPa)", value=140.0)
-    density = st.number_input("Material Density (g/cm³)", value=1.6)
+st.sidebar.header("Ribs & Skin")
+rib_spacing = st.sidebar.number_input("Rib Spacing (m)", value=0.15)
+skin_thickness = st.sidebar.number_input("Skin Thickness (mm)", value=0.5) / 1000
+skin_modulus = st.sidebar.number_input("Skin Modulus (GPa)", value=70.0) * 1e9
 
-    st.header("Ribs & Skin")
-    rib_spacing = st.number_input("Rib Spacing (m)", value=0.15)
-    skin_thickness = st.number_input("Skin Thickness (mm)", value=0.5)
-    skin_E = st.number_input("Skin Modulus (GPa)", value=70.0)
+# Perhitungan
+L = half_span
+W = total_lift / 2  # Asumsi half-span menahan setengah gaya
+w = W / L  # beban merata per meter
 
-# === Calculations ===
-def mm2_to_m4(mm4): return mm4 * 1e-12
+def moment_of_inertia_tube(od_mm, id_mm):
+    od = od_mm / 1000
+    id = id_mm / 1000
+    return (np.pi / 64) * (od**4 - id**4)
 
-def tube_inertia(od, id_):
-    return (np.pi / 64) * (od**4 - id_**4)
+I_spar1 = moment_of_inertia_tube(spar1_od, spar1_id)
+I_spar2 = moment_of_inertia_tube(spar2_od, spar2_id)
 
-def skin_inertia(b, t):
-    return (b * t**3) / 12
+# Asumsi kontribusi skin sebagai dua lapisan atas dan bawah
+I_skin = (skin_thickness * chord_length**3) / 12
+# Diasumsikan skin atas & bawah simetris terhadap netral axis
+I_skin_eq = 2 * I_skin + 2 * (chord_length / 2)**2 * skin_thickness
 
-# Spar inertia in mm^4
-I1 = tube_inertia(od1, id1)
-I2 = tube_inertia(od2, id2)
+I_total = I_spar1 + I_spar2 + I_skin_eq
 
-# Skin inertia (m converted to mm)
-skin_width = chord * 1000  # mm
-skin_t = skin_thickness    # mm
-I_skin = skin_inertia(skin_width, skin_t)
+# Defleksi maksimum
+δ_max = (5 * w * L**4) / (384 * E * I_total)
+δ_max_mm = δ_max * 1000
+status_defleksi = "Aman" if δ_max_mm < 15 else "Berisiko"
 
-# Adjust skin modulus to equivalent to spar modulus
-n_mod = skin_E / youngs_modulus
-I_skin_eq = I_skin * n_mod
+# Bending Stress (maksimum di spar 1)
+max_bending_moment = w * L**2 / 2
+y_max = (spar1_od / 2) / 1000
+σ_max = (max_bending_moment * y_max) / I_total
 
-I_total = I1 + I2 + I_skin_eq
+# Shear Stress kasar
+shear_stress = W / (np.pi * (spar1_od / 1000)**2)
+status_bending = "Aman" if σ_max < 400e6 else "Berisiko"
+status_shear = "Aman" if shear_stress < 200e6 else "Berisiko"
 
-L = span
-F = total_force / 2  # Half-wing load
-w = total_force / (2 * L)
-E = youngs_modulus * 1e9
+# Estimasi Berat
+num_ribs = int(L / rib_spacing) + 1
+rib_weight = 0.05  # estimasi per rib dalam kg
+ribs_weight = num_ribs * rib_weight
 
-delta_max = (5 * w * L**4) / (384 * E * mm2_to_m4(I_total))  # m
-stress_max = (F * L * (od1 / 2)) / mm2_to_m4(I_total)
-shear_stress = F / (np.pi * ((od1 / 1000)**2 - (id1 / 1000)**2))
+spar1_vol = np.pi * ((spar1_od/2)**2 - (spar1_id/2)**2) / 1e6 * L
+spar2_vol = np.pi * ((spar2_od/2)**2 - (spar2_id/2)**2) / 1e6 * L
+spar_weight = (spar1_vol + spar2_vol) * material_density
 
-# Status
-deflection_status = "✅ Aman" if delta_max*1000 < 20 else "⚠️ Berisiko"
+skin_area = chord_length * L * 2  # atas & bawah
+skin_weight = skin_area * skin_thickness * material_density
 
-col1, col2 = st.columns(2)
-with col1:
-    st.subheader("🧮 Structural Results")
-    st.metric("Max Bending Stress (Pa)", f"{stress_max:,.0f}")
-    st.metric("Tip Deflection (mm)", f"{delta_max*1000:.4f}")
-    st.metric("Shear Stress (Pa)", f"{shear_stress:,.0f}")
-    st.success(f"Status Defleksi: {deflection_status}")
+total_weight = ribs_weight + spar_weight + skin_weight
 
-with col2:
-    st.subheader("📏 Combined Moment of Inertia")
-    st.write(f"I Spar 1 = {I1:.2e} mm⁴")
-    st.write(f"I Spar 2 = {I2:.2e} mm⁴")
-    st.write(f"I Skin  = {I_skin:.2e} mm⁴")
-    st.write(f"I Skin Eq = {I_skin_eq:.2e} mm⁴")
-    st.write(f"I Total  = {I_total:.2e} mm⁴")
+# Output Section
+st.subheader("📊 Structural Results")
+st.metric("Max Bending Stress (Pa)", f"{σ_max:,.0f}")
+st.metric("Tip Deflection (mm)", f"{δ_max_mm:.4f}")
+st.metric("Shear Stress (Pa)", f"{shear_stress:,.0f}")
+st.success(f"Status Defleksi: {status_defleksi}")
 
-# === Visualization ===
-x = np.linspace(0, L, 200)
-M = F * (L - x)
-delta = (F * x**2) * (3*L - x) / (6 * E * mm2_to_m4(I_total))
+st.subheader("🧮 Combined Moment of Inertia")
+st.markdown(f"""
+- I Spar 1 = {I_spar1:.2e} mm⁴  
+- I Spar 2 = {I_spar2:.2e} mm⁴  
+- I Skin = {I_skin:.2e} mm⁴  
+- I Skin Eq = {I_skin_eq:.2e} mm⁴  
+- I Total = {I_total:.2e} mm⁴
+""")
 
-fig, ax = plt.subplots(1, 2, figsize=(10, 3))
-ax[0].plot(x, M)
-ax[0].set_title("Bending Moment Diagram")
-ax[0].set_xlabel("Wing Span (m)")
-ax[0].set_ylabel("Moment (Nm)")
-ax[0].grid(True)
+# Grafik
+x = np.linspace(0, L, 300)
+moment = w * x * (L - x / 2)
 
-ax[1].plot(x, delta*1000)
-ax[1].set_title("Deflection Curve")
-ax[1].set_xlabel("Wing Span (m)")
-ax[1].set_ylabel("Deflection (mm)")
-ax[1].grid(True)
+# Deflection per posisi
+delta_x = (w / (24 * E * I_total)) * x**2 * (6 * L**2 - 4 * L * x + x**2)
+delta_x_mm = delta_x * 1000
 
-st.pyplot(fig)
+fig1, ax1 = plt.subplots()
+ax1.plot(x, moment)
+ax1.set_title("Bending Moment Diagram")
+ax1.set_xlabel("Wing Span (m)")
+ax1.set_ylabel("Moment (Nm)")
+st.pyplot(fig1)
+
+fig2, ax2 = plt.subplots()
+ax2.plot(x, delta_x_mm)
+ax2.set_title("Deflection Curve")
+ax2.set_xlabel("Wing Span (m)")
+ax2.set_ylabel("Deflection (mm)")
+st.pyplot(fig2)
+
+# Summary table dan grafik status
+st.subheader("📦 Mass Estimation")
+st.markdown(f"""
+- Rib Count = {num_ribs} pcs  
+- Ribs Weight = {ribs_weight:.2f} kg  
+- Spars Weight = {spar_weight:.2f} kg  
+- Skin Weight = {skin_weight:.2f} kg  
+- **Total Structure Weight** = {total_weight:.2f} kg
+""")
+
+# Export
+st.subheader("📤 Export")
+def convert_df_to_csv():
+    csv = f"Max Stress, {σ_max}, Deflection, {δ_max_mm}, Shear Stress, {shear_stress}, Status, {status_defleksi}"
+    return csv.encode('utf-8')
+st.download_button("📥 Download CSV", convert_df_to_csv(), "analysis_result.csv")
+
+# Export PDF
+try:
+    import pdfkit
+    st.info("✅ PDF export support is available.")
+except:
+    st.warning("⚠️ pdfkit not installed. PDF export disabled.")
