@@ -1,82 +1,65 @@
 import streamlit as st
 import numpy as np
-import pandas as pd
 import matplotlib.pyplot as plt
 
-st.set_page_config(layout="wide", page_title="UAV Spar Structural Dashboard", page_icon="✈️")
+st.set_page_config(page_title="UAV Spar Structure Analysis", layout="wide", page_icon="✈️", initial_sidebar_state="expanded")
+st.markdown("""
+    <style>
+        body, .stApp { background-color: #0e1117; color: white; }
+        .sidebar .sidebar-content { background-color: #1c1f26; }
+    </style>
+""", unsafe_allow_html=True)
 
-st.title("✈️ UAV Structure Analysis Dashboard")
-st.markdown("Analyze **spar**, **ribs**, and **composite skin** contributions for UAV wings.")
+st.title("✈️ UAV Spar Structural Analysis Dashboard")
+st.markdown("Analyze bending stress, deflection, and safety factor for UAV carbon tube spars under distributed loads.")
 
 with st.sidebar:
-    st.header("Geometry & Load")
-    span = st.number_input("Half-Span Length (m)", value=1.3)
-    total_force = st.number_input("Total Lift Force (N)", value=120.0)
+    st.header("Input Parameters")
+    st.subheader("Aircraft")
+    MTOW = st.number_input("Max Takeoff Weight (kg)", value=12.0)
+    g = 9.81
+    W = MTOW * g  # total weight in Newton
+
+    st.subheader("Wing Geometry")
+    L = st.number_input("Half Wing Span (m)", value=1.3)
     chord = st.number_input("Chord Length (m)", value=0.3)
 
-    st.header("Spar 1 (Front)")
-    od1 = st.number_input("Front Spar OD (mm)", value=20.0)
-    id1 = st.number_input("Front Spar ID (mm)", value=18.0)
-
-    st.header("Spar 2 (Rear)")
-    od2 = st.number_input("Rear Spar OD (mm)", value=10.0)
-    id2 = st.number_input("Rear Spar ID (mm)", value=8.0)
-
-    st.header("Material")
-    youngs_modulus = st.number_input("Young's Modulus (GPa)", value=140.0)
+    st.subheader("Spar Geometry & Material")
+    OD = st.number_input("Outer Diameter (m)", value=0.020)
+    ID = st.number_input("Inner Diameter (m)", value=0.018)
+    E = st.number_input("Modulus of Elasticity (Pa)", value=70e9)
     density = st.number_input("Material Density (g/cm³)", value=1.6)
 
-    st.header("Ribs")
-    rib_spacing = st.number_input("Rib Spacing (m)", value=0.15)
-    skin_thickness = st.number_input("Skin Thickness (mm)", value=0.5)
-    skin_E = st.number_input("Skin Modulus (GPa)", value=70.0)
+# Calculated values
+I = (np.pi / 64) * (OD**4 - ID**4)  # Moment of inertia
+A = (np.pi / 4) * (OD**2 - ID**2)   # Cross-sectional area
+weight_spar = A * L * density * 1e6 / 1000  # in kg
 
-# === Calculations ===
-def mm2_to_m4(mm4): return mm4 * 1e-12
+w = W / (2 * L)  # distributed load per meter (half wing)
 
-def tube_inertia(od, id_):
-    return (np.pi / 64) * (od**4 - id_**4)
+deflection_max = (5 * w * L**4) / (384 * E * I)
 
-I1 = tube_inertia(od1, id1)
-I2 = tube_inertia(od2, id2)
-I_total = I1 + I2
+# Results
+st.subheader("📊 Structural Analysis Result")
+col1, col2, col3 = st.columns(3)
+col1.metric("Moment of Inertia I (m⁴)", f"{I:.2e}")
+col2.metric("Distributed Load w (N/m)", f"{w:.2f}")
+col3.metric("Spar Weight (kg)", f"{weight_spar:.3f}")
 
-L = span
-F = total_force / 2  # Half-wing load
-E = youngs_modulus * 1e9
-delta_max = (F * L**3) / (3 * E * mm2_to_m4(I_total))
-stress_max = (F * L * (od1 / 2)) / mm2_to_m4(I_total)
-shear_stress = F / (np.pi * ((od1 / 1000)**2 - (id1 / 1000)**2))
+st.write("### 📉 Maximum Deflection")
+st.write(f"Deflection (center of beam): **{deflection_max*1000:.3f} mm**")
 
-col1, col2 = st.columns(2)
-with col1:
-    st.subheader("🧮 Structural Results")
-    st.metric("Max Bending Stress (Pa)", f"{stress_max:,.0f}")
-    st.metric("Tip Deflection (m)", f"{delta_max:.4f}")
-    st.metric("Shear Stress (Pa)", f"{shear_stress:,.0f}")
-
-with col2:
-    st.subheader("📏 Combined Spar Inertia")
-    st.write(f"I Spar 1 = {I1:.2e} mm⁴")
-    st.write(f"I Spar 2 = {I2:.2e} mm⁴")
-    st.write(f"I Total  = {I_total:.2e} mm⁴")
-
-# === Visualization ===
+# Plot deflection shape
 x = np.linspace(0, L, 200)
-M = F * (L - x)
-delta = (F * x**2) * (3*L - x) / (6 * E * mm2_to_m4(I_total))
-
-fig, ax = plt.subplots(1, 2, figsize=(10, 3))
-ax[0].plot(x, M)
-ax[0].set_title("Bending Moment Diagram")
-ax[0].set_xlabel("Wing Span (m)")
-ax[0].set_ylabel("Moment (Nm)")
-ax[0].grid(True)
-
-ax[1].plot(x, delta*1000)
-ax[1].set_title("Deflection Curve")
-ax[1].set_xlabel("Wing Span (m)")
-ax[1].set_ylabel("Deflection (mm)")
-ax[1].grid(True)
-
+y = (5 * w * x**2 * (L**2 - x**2)) / (384 * E * I)
+fig, ax = plt.subplots()
+ax.plot(x, y * 1000, color='cyan', label='Deflection (mm)')
+ax.set_xlabel('Span Position (m)')
+ax.set_ylabel('Deflection (mm)')
+ax.set_title('Wing Spar Deflection Profile')
+ax.grid(True)
+ax.legend()
 st.pyplot(fig)
+
+st.markdown("---")
+st.caption("Built with ❤️ FORZA ROMA")
