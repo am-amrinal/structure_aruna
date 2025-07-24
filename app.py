@@ -26,7 +26,7 @@ with st.sidebar:
     youngs_modulus = st.number_input("Young's Modulus (GPa)", value=140.0)
     density = st.number_input("Material Density (g/cm³)", value=1.6)
 
-    st.header("Ribs")
+    st.header("Ribs & Skin")
     rib_spacing = st.number_input("Rib Spacing (m)", value=0.15)
     skin_thickness = st.number_input("Skin Thickness (mm)", value=0.5)
     skin_E = st.number_input("Skin Modulus (GPa)", value=70.0)
@@ -37,28 +37,50 @@ def mm2_to_m4(mm4): return mm4 * 1e-12
 def tube_inertia(od, id_):
     return (np.pi / 64) * (od**4 - id_**4)
 
+def skin_inertia(b, t):
+    return (b * t**3) / 12
+
+# Spar inertia in mm^4
 I1 = tube_inertia(od1, id1)
 I2 = tube_inertia(od2, id2)
-I_total = I1 + I2
+
+# Skin inertia (m converted to mm)
+skin_width = chord * 1000  # mm
+skin_t = skin_thickness    # mm
+I_skin = skin_inertia(skin_width, skin_t)
+
+# Adjust skin modulus to equivalent to spar modulus
+n_mod = skin_E / youngs_modulus
+I_skin_eq = I_skin * n_mod
+
+I_total = I1 + I2 + I_skin_eq
 
 L = span
 F = total_force / 2  # Half-wing load
+w = total_force / (2 * L)
 E = youngs_modulus * 1e9
-delta_max = (F * L**3) / (3 * E * mm2_to_m4(I_total))
+
+delta_max = (5 * w * L**4) / (384 * E * mm2_to_m4(I_total))  # m
 stress_max = (F * L * (od1 / 2)) / mm2_to_m4(I_total)
 shear_stress = F / (np.pi * ((od1 / 1000)**2 - (id1 / 1000)**2))
+
+# Status
+deflection_status = "✅ Aman" if delta_max*1000 < 20 else "⚠️ Berisiko"
 
 col1, col2 = st.columns(2)
 with col1:
     st.subheader("🧮 Structural Results")
     st.metric("Max Bending Stress (Pa)", f"{stress_max:,.0f}")
-    st.metric("Tip Deflection (m)", f"{delta_max:.4f}")
+    st.metric("Tip Deflection (mm)", f"{delta_max*1000:.4f}")
     st.metric("Shear Stress (Pa)", f"{shear_stress:,.0f}")
+    st.success(f"Status Defleksi: {deflection_status}")
 
 with col2:
-    st.subheader("📏 Combined Spar Inertia")
+    st.subheader("📏 Combined Moment of Inertia")
     st.write(f"I Spar 1 = {I1:.2e} mm⁴")
     st.write(f"I Spar 2 = {I2:.2e} mm⁴")
+    st.write(f"I Skin  = {I_skin:.2e} mm⁴")
+    st.write(f"I Skin Eq = {I_skin_eq:.2e} mm⁴")
     st.write(f"I Total  = {I_total:.2e} mm⁴")
 
 # === Visualization ===
