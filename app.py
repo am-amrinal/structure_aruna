@@ -1,112 +1,82 @@
 import streamlit as st
 import numpy as np
 import pandas as pd
-import plotly.graph_objects as go
+import matplotlib.pyplot as plt
 
-st.set_page_config(page_title="UAV Spar Structural Analysis", layout="wide", page_icon="🛠️")
-st.title("🛠️ UAV Spar Structural Analysis Dashboard")
+st.set_page_config(layout="wide", page_title="UAV Spar Structural Dashboard", page_icon="✈️")
 
-st.markdown("""
-This tool helps engineers analyze structural performance of UAV wing spars.
-Given specifications, it calculates bending stress, deflection, and shear stress for front and rear spars.
-""")
+st.title("✈️ UAV Structure Analysis Dashboard")
+st.markdown("Analyze **spar**, **ribs**, and **composite skin** contributions for UAV wings.")
 
-# --- INPUT PARAMETERS ---
-st.sidebar.header("Wing & Spar Configuration")
-MTOW = st.sidebar.number_input("Max Take-Off Weight (kg)", value=12.0)
-speed = st.sidebar.number_input("Max Speed (m/s)", value=36.0)
-wing_span = st.sidebar.number_input("Wingspan (m)", value=2.6)
-chord = st.sidebar.number_input("Chord (m)", value=0.3)
+with st.sidebar:
+    st.header("Geometry & Load")
+    span = st.number_input("Half-Span Length (m)", value=1.3)
+    total_force = st.number_input("Total Lift Force (N)", value=120.0)
+    chord = st.number_input("Chord Length (m)", value=0.3)
 
-half_span = wing_span / 2
-lift_total = MTOW * 9.81  # Newton
-lift_half = lift_total / 2  # Assume symmetric
+    st.header("Spar 1 (Front)")
+    od1 = st.number_input("Front Spar OD (mm)", value=20.0)
+    id1 = st.number_input("Front Spar ID (mm)", value=18.0)
 
-st.sidebar.subheader("Spar 1 (Front)")
-spar1_OD = st.sidebar.number_input("OD Front Spar (mm)", value=20) / 1000
-spar1_ID = st.sidebar.number_input("ID Front Spar (mm)", value=18) / 1000
+    st.header("Spar 2 (Rear)")
+    od2 = st.number_input("Rear Spar OD (mm)", value=10.0)
+    id2 = st.number_input("Rear Spar ID (mm)", value=8.0)
 
-st.sidebar.subheader("Spar 2 (Rear)")
-spar2_OD = st.sidebar.number_input("OD Rear Spar (mm)", value=10) / 1000
-spar2_ID = st.sidebar.number_input("ID Rear Spar (mm)", value=8) / 1000
+    st.header("Material")
+    youngs_modulus = st.number_input("Young's Modulus (GPa)", value=140.0)
+    density = st.number_input("Material Density (g/cm³)", value=1.6)
 
-spar_length = st.sidebar.number_input("Spar Length (m)", value=1.2)
-density = st.sidebar.number_input("Material Density (g/cm³)", value=1.6) * 1000  # kg/m³
+    st.header("Ribs")
+    rib_spacing = st.number_input("Rib Spacing (m)", value=0.15)
+    skin_thickness = st.number_input("Skin Thickness (mm)", value=0.5)
+    skin_E = st.number_input("Skin Modulus (GPa)", value=70.0)
 
-# --- FUNCTION DEFINITIONS ---
-def moment_of_inertia(OD, ID):
-    return (np.pi / 64) * (OD**4 - ID**4)
+# === Calculations ===
+def mm2_to_m4(mm4): return mm4 * 1e-12
 
-def calc_deflection(F, L, E, I):
-    return (F * L**3) / (3 * E * I)
+def tube_inertia(od, id_):
+    return (np.pi / 64) * (od**4 - id_**4)
 
-def bending_stress(F, L, I, OD):
-    c = OD / 2
-    M = F * L
-    return M * c / I
+I1 = tube_inertia(od1, id1)
+I2 = tube_inertia(od2, id2)
+I_total = I1 + I2
 
-def shear_stress(F, A):
-    return F / A
+L = span
+F = total_force / 2  # Half-wing load
+E = youngs_modulus * 1e9
+delta_max = (F * L**3) / (3 * E * mm2_to_m4(I_total))
+stress_max = (F * L * (od1 / 2)) / mm2_to_m4(I_total)
+shear_stress = F / (np.pi * ((od1 / 1000)**2 - (id1 / 1000)**2))
 
-# --- CALCULATIONS ---
-E = 70e9  # Young's modulus (Pa) assumed for carbon fiber
-F = lift_half
-L = half_span
-
-# Spar 1 (Front)
-I1 = moment_of_inertia(spar1_OD, spar1_ID)
-stress1 = bending_stress(F, L, I1, spar1_OD)
-deflection1 = calc_deflection(F, L, E, I1)
-area1 = np.pi * (spar1_OD**2 - spar1_ID**2) / 4
-shear1 = shear_stress(F, area1)
-
-# Spar 2 (Rear)
-I2 = moment_of_inertia(spar2_OD, spar2_ID)
-stress2 = bending_stress(F, L, I2, spar2_OD)
-deflection2 = calc_deflection(F, L, E, I2)
-area2 = np.pi * (spar2_OD**2 - spar2_ID**2) / 4
-shear2 = shear_stress(F, area2)
-
-# --- DISPLAY RESULTS ---
 col1, col2 = st.columns(2)
-
 with col1:
-    st.metric("Half Wing Load (N)", f"{F:.2f}")
-    st.metric("Half Span (m)", f"{L:.2f}")
-    st.metric("Young's Modulus (Pa)", f"{E:.1e}")
+    st.subheader("🧮 Structural Results")
+    st.metric("Max Bending Stress (Pa)", f"{stress_max:,.0f}")
+    st.metric("Tip Deflection (m)", f"{delta_max:.4f}")
+    st.metric("Shear Stress (Pa)", f"{shear_stress:,.0f}")
 
 with col2:
-    st.metric("Chord (m)", f"{chord:.3f}")
-    st.metric("Total Lift (N)", f"{lift_total:.1f}")
+    st.subheader("📏 Combined Spar Inertia")
+    st.write(f"I Spar 1 = {I1:.2e} mm⁴")
+    st.write(f"I Spar 2 = {I2:.2e} mm⁴")
+    st.write(f"I Total  = {I_total:.2e} mm⁴")
 
-st.subheader("📊 Spar Structural Analysis")
-df = pd.DataFrame({
-    "Spar": ["Front Spar (OD 20mm)", "Rear Spar (OD 10mm)"],
-    "Moment of Inertia (m⁴)": [I1, I2],
-    "Bending Stress (Pa)": [stress1, stress2],
-    "Deflection at Tip (m)": [deflection1, deflection2],
-    "Shear Stress (Pa)": [shear1, shear2],
-    "Cross-sectional Area (m²)": [area1, area2],
-})
-st.dataframe(df.style.format({
-    "Moment of Inertia (m⁴)": "{:.2e}",
-    "Bending Stress (Pa)": "{:.2e}",
-    "Deflection at Tip (m)": "{:.5f}",
-    "Shear Stress (Pa)": "{:.2e}",
-    "Cross-sectional Area (m²)": "{:.2e}"
-}))
+# === Visualization ===
+x = np.linspace(0, L, 200)
+M = F * (L - x)
+delta = (F * x**2) * (3*L - x) / (6 * E * mm2_to_m4(I_total))
 
-# --- PLOT ---
-fig = go.Figure()
-fig.add_trace(go.Bar(name='Bending Stress (Pa)', x=df['Spar'], y=df['Bending Stress (Pa)']))
-fig.add_trace(go.Bar(name='Shear Stress (Pa)', x=df['Spar'], y=df['Shear Stress (Pa)']))
-fig.update_layout(title="Stress Comparison", barmode='group', template="plotly_dark")
-st.plotly_chart(fig, use_container_width=True)
+fig, ax = plt.subplots(1, 2, figsize=(10, 3))
+ax[0].plot(x, M)
+ax[0].set_title("Bending Moment Diagram")
+ax[0].set_xlabel("Wing Span (m)")
+ax[0].set_ylabel("Moment (Nm)")
+ax[0].grid(True)
 
-# --- WEIGHT ESTIMATION ---
-weight1 = spar_length * area1 * density
-weight2 = spar_length * area2 * density
+ax[1].plot(x, delta*1000)
+ax[1].set_title("Deflection Curve")
+ax[1].set_xlabel("Wing Span (m)")
+ax[1].set_ylabel("Deflection (mm)")
+ax[1].grid(True)
 
-total_weight = weight1 + weight2
-
-st.success(f"Estimated Spar Weight Total: {total_weight:.2f} kg")
+st.pyplot(fig)
